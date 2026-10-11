@@ -1,0 +1,6 @@
+config.json
+state/
+ha-huawei-smarthome/
+__pycache__/
+*.pyc
+nohup.out

@@ -1,0 +1,6 @@
+{
+  "router_dev_id": "<你的路由器云端设备UUID>",
+  "default_device": "<默认管控子设备序号，如 8>",
+  "home_id": "<家庭ID（仅 relay_probe 需要）>",
+  "huid": "<华为账号数字ID（仅 relay_probe 需要）>"
+}
