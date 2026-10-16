@@ -27,17 +27,23 @@
 注意：`child*` 与 `HostInfo` 等**云端读数是影子层**，与路由器本地真值存在滞后/派生差异；
 以名单类端点（childModelApps/HostInfo）直读为准。
 
-## 3. 游戏总开关真协议（type=0）
+## 3. 游戏总开关真协议（⚠️2026-10-16 起 type=1，旧 type=0 已失效）
+
+智慧生活 App 路由器插件更新后，总开关迁移到 **type=1** 且 denyAll 极性反转；
+旧 type=0 写法一律返回 `errcode=9003`。
 
 ```
 POST gateway/ntwk/childModelApps
-body: {"data":{"denyAll":1,"type":0,"device":"<dev>","apps":[<目录全量游戏ID>],"scene":0},"action":"update"}   # 全禁
-     {"data":{"denyAll":0,"type":0,"device":"<dev>","apps":[],"scene":0},"action":"update"}                  # 放行
+body: {"data":{"denyAll":0,"type":1,"device":"<dev>","apps":[<目录全量游戏ID>],"scene":0},"action":"update"}   # 全禁
+     {"data":{"denyAll":1,"type":1,"device":"<dev>","apps":[],"scene":0},"action":"update"}                  # 放行
 ```
 
 - 目录：`gateway/ntwk/childAppList?devid=<dev>`（id+categ 位掩码：4=游戏 16=视频 …）
-- **开启必须带全量 ID 列表**；`denyAll:1 + apps:[]` 无效
-- 状态判读：`childHomepage.gameDenyCount`（0=未禁 / 目录总数=全禁）
+- **全禁必须带全量 ID 列表（denyAll:0）**；放行=denyAll:1+空名单
+- type=1 现可 GET 直读名单：`childModelApps?type=1&devid=<dev>` → `{apps:[...]}`
+  （旧 type=0 GET 恒 `[]`，状态只能读 `childHomepage.gameDenyCount`）
+- App 在放行方向还会同发 `childHomepage gameUpdate game=1`，实测与拦截无关
+- 历史注：denyAll 语义勿跨 type 类推（type=0 时代是 1=禁/0=放）
 
 ## 4. 上网时段
 

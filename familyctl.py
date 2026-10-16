@@ -8,7 +8,7 @@
   familyctl.py devices                          # 全部受控设备（管控档案）
   familyctl.py clients                          # 路由器全量连接设备（MQTT 直查 gateway/system/HostInfo，秒级）
   familyctl.py status <dev>                     # 单设备管控全貌
-  familyctl.py games <dev> on|off|status        # 游戏总开关（type=0 真协议）
+  familyctl.py games <dev> on|off|status        # 游戏总开关（type=1 新协议，2026-10-16 插件更新）
   familyctl.py appmask <dev> <games|video|social|typeN> list|add <id...>|remove <id...>
   familyctl.py frames <dev>                     # 时段列表（标注当前生效）
   familyctl.py frame-off <dev> <id> [id...]     # 禁用时段帧
@@ -24,7 +24,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from p50_lib import (get_session, with_mqtt, list_devices, resolve_dev, get_home, get_client_list,
-                     get_frames, get_frame, get_apps, game_catalog_ids,
+                     get_frames, get_frame, get_apps, game_catalog_ids, get_games_master,
                      set_games_master, set_category_list, frame_add, frame_set_enable,
                      CATEGORY)
 
@@ -85,11 +85,12 @@ async def cmd_status(mqtt, s, inbox, dev, rec):
     home = await get_home(mqtt, s, inbox, dev) or rec or {}
     frames = await get_frames(mqtt, s, inbox, dev)
     cat = len(await game_catalog_ids(mqtt, s, inbox, dev))
-    n = home.get('gameDenyCount', 0)
+    apps1 = await get_games_master(mqtt, s, inbox, dev)
+    n = len(apps1) if apps1 is not None else home.get('gameDenyCount', 0)
     print(f"{home.get('hostName','?')} (device={dev}, {home.get('actualName','')}, "
           f"{'在线' if home.get('active') else '离线'})")
     print(f"游戏总开关: {'全禁' if n >= cat and cat else '未全禁'}"
-          f"（gameDenyCount={n}/目录{cat}）")
+          f"（总开关名单{n}/目录{cat}）")
     for name, typ in (('游戏单独禁止', 4), ('视频', 2), ('社交', 3)):
         apps = await get_apps(mqtt, s, inbox, typ, dev)
         print(f"{name}名单(type={typ}): {len(apps) if apps is not None else '读取失败'}款")
@@ -106,19 +107,18 @@ async def cmd_status(mqtt, s, inbox, dev, rec):
 
 
 async def cmd_games(mqtt, s, inbox, dev, action):
+    cat = await game_catalog_ids(mqtt, s, inbox, dev)
     if action == 'status':
-        home = await get_home(mqtt, s, inbox, dev) or {}
-        cat = len(await game_catalog_ids(mqtt, s, inbox, dev))
-        n = home.get('gameDenyCount', 0)
-        print(f"{'全禁' if n >= cat and cat else '未全禁'}（gameDenyCount={n}/目录{cat}）")
+        apps1 = await get_games_master(mqtt, s, inbox, dev)
+        n = len(apps1) if apps1 is not None else -1
+        print(f"{'全禁' if n >= len(cat) and cat else '未全禁'}（总开关名单{n}/目录{len(cat)}）")
         return
     deny = action == 'on'
     ec = await set_games_master(mqtt, s, inbox, dev, deny)
-    home = await get_home(mqtt, s, inbox, dev) or {}
-    n = home.get('gameDenyCount', '?')
-    ok = ec == '0' and ((deny and n and n > 0) or (not deny and n == 0))
+    back = await get_games_master(mqtt, s, inbox, dev) or []
+    ok = ec == '0' and ((deny and cat and len(back) >= len(cat)) or (not deny and len(back) == 0))
     print(f"游戏总开关={'开(全禁)' if deny else '关(放行)'} errcode={ec} "
-          f"读回gameDenyCount={n} {'✅' if ok else '⚠️ 未确认'}")
+          f"读回名单{len(back)}/{len(cat)} {'✅' if ok else '⚠️ 未确认'}")
 
 
 async def cmd_appmask(mqtt, s, inbox, dev, cat, action, ids):

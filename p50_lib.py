@@ -5,9 +5,11 @@
 
 协议备忘（全部实测坐实，详见 git log 与 docs/）：
 - 分类名单: POST childModelApps {data:{denyAll,type,device,apps,scene}, action:'update'}
-    type=0 游戏总开关（开=denyAll:1+目录全量游戏ID；关=denyAll:0+apps:[]；
-           denyAll:1+apps:[] 无效）type=2 视频 type=3 社交 type=4 游戏单独禁止
-    GET 必须带 devid，否则返回空/聚合；type=0 GET 恒为 []（状态只读得到 homepage.gameDenyCount）
+    type=1 游戏总开关（⚠️2026-10-16 插件更新后迁移至此，旧 type=0 一律 errcode=9003；
+           极性反转：禁止=denyAll:0+目录全量游戏ID，允许=denyAll:1+apps:[]；
+           type=1 现可 GET 读回名单，旧 type=0 恒 []）
+    type=2 视频 type=3 社交 type=4 游戏单独禁止（上限23款，超限 errcode=9003）
+    GET 必须带 devid，否则返回空/聚合
 - 分类开关: POST childHomepage {data:{game:0/1,device,scene,...}, action:'gameUpdate'}
     （与 App 总开关不同层，作用存疑——优先用 type=0）
 - 时段: POST childFrame {data:{id:'',timeFrom,timeTo,全周1,today:0,enable,scene,device}, action:'newCreate'}
@@ -52,7 +54,7 @@ P50 = '8'  # 历史默认设备；新代码请显式传 dev
 
 # 分类名 → childModelApps type
 CATEGORY = {'games': 4, 'video': 2, 'social': 3}
-MASTER_TYPE = 0  # 游戏总开关
+MASTER_TYPE = 1  # 游戏总开关（2026-10-16 插件更新后 0→1，denyAll 极性反转，见模块头）
 DAYS = ('sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday')
 
 
@@ -208,11 +210,19 @@ async def get_client_list(mqtt, s, inbox):
 # ---------- 写入原语 ----------
 
 async def set_games_master(mqtt, s, inbox, dev, deny):
-    """游戏总开关（type=0）。开=denyAll:1+全量名单；关=denyAll:0+空名单。"""
+    """游戏总开关（type=1，2026-10-16 抓包更新后协议）。
+    禁止=denyAll:0+目录全量游戏ID；允许=denyAll:1+空名单。
+    （App 在允许方向还会同发 childHomepage gameUpdate game=1，实测与拦截无关，不镜像。）"""
     apps = await game_catalog_ids(mqtt, s, inbox, dev) if deny else []
-    body = {"data": {"denyAll": 1 if deny else 0, "type": MASTER_TYPE,
+    body = {"data": {"denyAll": 0 if deny else 1, "type": MASTER_TYPE,
                      "device": str(dev), "apps": apps, "scene": 0}, "action": "update"}
     return await pub(mqtt, s, CMA, body, inbox)
+
+
+async def get_games_master(mqtt, s, inbox, dev):
+    """读总开关名单（type=1 现可 GET）。返回 apps 列表（全禁时=目录全量）或 None。"""
+    body = await read_sid(mqtt, s, inbox, f'gateway/ntwk/childModelApps?type={MASTER_TYPE}&devid={dev}&scene=0')
+    return body.get('apps') if isinstance(body, dict) else None
 
 
 async def set_category_list(mqtt, s, inbox, dev, typ, apps, deny_all=1):
